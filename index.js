@@ -1,5 +1,6 @@
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
+const QRCode = require('qrcode');
 const express = require('express');
 const axios = require('axios');
 const bodyParser = require('body-parser');
@@ -9,6 +10,8 @@ const PORT = process.env.PORT || 3000;
 
 let currentQR = null;
 
+app.use(bodyParser.json());
+
 const client = new Client({
     authStrategy: new LocalAuth(),
     puppeteer: {
@@ -17,8 +20,6 @@ const client = new Client({
     }
 });
 
-app.use(bodyParser.json());
-
 const typingMap = new Map();
 const questionTracker = new Map();
 
@@ -26,13 +27,13 @@ const questionTracker = new Map();
 client.on('qr', qr => {
     currentQR = qr;
     qrcode.generate(qr, { small: true });
-    console.log("📲 Scan the QR code above with your WhatsApp.");
+    console.log("📲 Scan the QR code above with your WhatsApp or visit /qr");
 });
 
 // ✅ WhatsApp ready
 client.on('ready', () => {
     console.log('✅ WhatsApp bot is connected and ready!');
-    currentQR = null; // Clear QR once connected
+    currentQR = null;
 });
 
 // 📩 Endpoint for replies from n8n
@@ -78,16 +79,29 @@ app.post('/send-reply', async (req, res) => {
     }
 });
 
-// 🔎 Show QR code string (for Postman/browser)
-app.get('/qr', (req, res) => {
-    if (currentQR) {
-        return res.status(200).send(`Scan this QR with WhatsApp: ${currentQR}`);
-    } else {
+// 🔎 Show QR visually
+app.get('/qr', async (req, res) => {
+    if (!currentQR) {
         return res.status(200).send('✅ Already authenticated or QR not available.');
+    }
+
+    try {
+        const qrImage = await QRCode.toDataURL(currentQR);
+        res.send(`
+            <html>
+                <head><title>Scan WhatsApp QR</title></head>
+                <body style="text-align:center; font-family:sans-serif;">
+                    <h2>📱 Scan this QR Code to Login</h2>
+                    <img src="${qrImage}" />
+                </body>
+            </html>
+        `);
+    } catch (error) {
+        res.status(500).send('❌ Failed to generate QR image.');
     }
 });
 
-// 🧠 Message handling
+// 🧠 Handle group messages
 client.on('message', async message => {
     try {
         const chat = await message.getChat();
@@ -147,9 +161,14 @@ client.on('message', async message => {
     }
 });
 
+// 🟢 Root status
+app.get('/', (req, res) => {
+    res.send('🟢 WhatsApp Bot is running!');
+});
+
 // 🌐 Start Express server
 app.listen(PORT, () => {
-    console.log(`🌐 Express server running at http://localhost:${PORT}`);
+    console.log(`🌍 Express server live at http://localhost:${PORT}`);
 });
 
 // ▶️ Start WhatsApp client
